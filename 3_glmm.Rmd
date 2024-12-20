@@ -1,0 +1,326 @@
+---
+title: "seroprevalence_study_glmm"
+output: html_document
+date: "2023-01-05"
+---
+
+```{r 1-setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+source("00_setup.R")
+
+load("data.RData")
+```
+
+## Exposure Risk Generalized Linear Mixed Model
+
+```{r}
+exposure_df <- exposure_mod
+
+exposure_df %<>% 
+  mutate(vaccinated = factor(if_else(vaccination == "No Vaccine", "No", "Yes")),
+         exposure_risk = as.integer(exposure_risk))%>%
+  filter(age > 0)%>%
+  select(user_id, exposure_risk, sex, vaccinated, covid, health, government_restrictions, age, week_id,
+         pandemic_week, gather_er, care_er, visit_er, hw_er, pt_er, work_er)
+
+exposure_df_sc <- exposure_df
+```
+
+
+```{r}
+exposure_df_sc[,"government_restrictions"] <- scale(exposure_mod[,"government_restrictions"],
+                                                    center = TRUE)
+exposure_df_sc[,"pandemic_week"] <- scale(exposure_mod[,"pandemic_week"],center = TRUE)
+exposure_df_sc[,"age"] <- scale(exposure_mod[,"age"],center = TRUE)
+#exposure_df_sc[,"exposure_risk"] <- scale(exposure_mod[,"exposure_risk"],center = TRUE)
+```
+
+```{r}
+summary(exposure_df_sc)
+```
+
+```{r}
+exposure_lmm_sc <- glmmTMB(exposure_risk ~  age + health + government_restrictions +
+                          pandemic_week +
+                                    vaccinated + sex +
+                                    (1 + pandemic_week | user_id) +
+                                    vaccinated:pandemic_week +  
+                                    age:government_restrictions + vaccinated:age + 
+                          age:health +  pandemic_week:government_restrictions,
+                        family = poisson,
+                                    data = exposure_df_sc)
+
+summary(exposure_lmm_sc)
+```
+
+```{r}
+gather_lmm_sc <- glmmTMB(gather_er ~  age + health + government_restrictions +
+                          pandemic_week +
+                                    vaccinated + sex +
+                                    (1 + pandemic_week | user_id) +
+                                    vaccinated:pandemic_week +  
+                                    age:government_restrictions + vaccinated:age + 
+                          age:health +  pandemic_week:government_restrictions,
+                        family = poisson,
+                                    data = exposure_df_sc)
+
+summary(gather_lmm_sc)
+```
+
+```{r}
+care_lmm_sc <- glmmTMB(care_er ~  age + health + government_restrictions +
+                          pandemic_week +
+                                    vaccinated + sex +
+                                    (1 + pandemic_week | user_id) +
+                                    vaccinated:pandemic_week +  
+                                    age:government_restrictions + vaccinated:age + 
+                          age:health +  pandemic_week:government_restrictions,
+                        family = poisson,
+                                    data = exposure_df_sc)
+
+summary(care_lmm_sc)
+```
+
+
+```{r}
+visit_lmm_sc <- glmmTMB(visit_er ~  age + health + government_restrictions +
+                          pandemic_week +
+                                    vaccinated + sex +
+                                    (1 + pandemic_week | user_id) +
+                                    vaccinated:pandemic_week +  
+                                    age:government_restrictions + vaccinated:age + 
+                          age:health +  pandemic_week:government_restrictions,
+                        family = poisson,
+                                    data = exposure_df_sc)
+
+summary(visit_lmm_sc)
+```
+
+```{r}
+hw_lmm_sc <- glmmTMB(hw_er ~  age + health + government_restrictions +
+                          pandemic_week +
+                                    vaccinated + sex +
+                                    (1 + pandemic_week | user_id) +
+                                    vaccinated:pandemic_week +  
+                                    age:government_restrictions + vaccinated:age + 
+                          age:health +  pandemic_week:government_restrictions,
+                        family = poisson,
+                                    data = exposure_df_sc)
+
+summary(hw_lmm_sc)
+```
+
+```{r}
+pt_lmm_sc <- glmmTMB(pt_er ~  age + health + government_restrictions +
+                          pandemic_week +
+                                    vaccinated + sex +
+                                    (1 + pandemic_week | user_id) +
+                                    vaccinated:pandemic_week +  
+                                    age:government_restrictions + vaccinated:age + 
+                          age:health +  pandemic_week:government_restrictions,
+                        family = poisson,
+                                    data = exposure_df_sc)
+
+summary(pt_lmm_sc)
+```
+
+```{r}
+work_lmm_sc <- glmmTMB(work_er ~  age + health + government_restrictions +
+                          pandemic_week +
+                                    vaccinated + sex +
+                                    (1 + pandemic_week | user_id) +
+                                    vaccinated:pandemic_week +  
+                                    age:government_restrictions + vaccinated:age + 
+                          age:health +  pandemic_week:government_restrictions,
+                        family = poisson,
+                                    data = exposure_df_sc)
+
+summary(work_lmm_sc)
+```
+
+```{r}
+tab_model(exposure_lmm_sc, file = "20240426_exposure_estimates.html")
+```
+
+
+```{r}
+overall_mod <- broom.mixed::tidy(exposure_lmm_sc, conf.int = TRUE)
+
+overall_mod %<>%
+  mutate(term = factor(term, levels = c("age", "sexF", "healthHealthy", "vaccinatedYes",
+                                        "government_restrictions", "pandemic_week",
+                                        "age:healthHealthy", "age:vaccinatedYes",
+                                        "age:government_restrictions", 
+                                        "pandemic_week:vaccinatedYes",
+                                        "government_restrictions:pandemic_week"
+                                        ),
+                       labels = c("Age", "Sex = Female", "Health Status = Healthy", "Vaccinated", 
+                                  "Stringency Index","Pandemic Week", 
+                                  "Age:Health Status = Healthy", "Age:Vaccinated", 
+                                  "Age:Stringency Index", 
+                                  "Pandemic Week:Vaccinated", 
+                                  "Stringency Index:Pandemic Week" )))
+
+overall_mod %>%
+  filter(effect == "fixed", term != "(Intercept)")%>%
+  ggplot()+
+  aes(
+    x = estimate,
+    y = term,
+    #y = reorder(term, -estimate),
+    xmin = conf.low,
+    xmax = conf.high
+  )+
+  geom_pointrange(
+    aes(
+    colour = if_else(p.value < 0.05, "black", "grey30"),
+    shape = if_else(p.value < 0.05, "1", "19")
+  )
+  )+
+  scale_shape_binned()+
+  scale_shape_manual(values = c(19,1))+
+  geom_vline(xintercept = 0,
+             linetype = "dashed")+
+  scale_colour_identity()+
+    scale_y_discrete(limits=rev)+
+  
+  geom_text(aes(label = round(estimate, digits = 2), x = 0.4))+
+  geom_text(aes(label = round(p.value, digits = 3), x = 0.6))+
+  scale_colour_identity()+
+  guides(shape = "none")+
+  labs(y = "", x = "Exposure Risk Estimate")
+
+ggsave(here::here("figures", "fig3b.svg"), height = 4, width = 6, units = "in")
+```
+
+```{r}
+overall <- broom.mixed::tidy(exposure_lmm_sc, conf.int = TRUE)%>%
+  mutate(variable = "overall")
+gather <- broom.mixed::tidy(gather_lmm_sc, conf.int = TRUE)%>%
+  mutate(variable = "Gather")
+care <- broom.mixed::tidy(care_lmm_sc, conf.int = TRUE)%>%
+  mutate(variable = "Recieve Care")
+visit <- broom.mixed::tidy(visit_lmm_sc, conf.int = TRUE)%>%
+  mutate(variable = "Visit Care")
+hw <- broom.mixed::tidy(hw_lmm_sc, conf.int = TRUE)%>%
+  mutate(variable = "Handwashing")
+pt <- broom.mixed::tidy(pt_lmm_sc, conf.int = TRUE)%>%
+  mutate(variable = "Public Transport")
+work <- broom.mixed::tidy(work_lmm_sc, conf.int = TRUE)%>%
+  mutate(variable = "Work")
+
+all_mods <- rbind(overall, gather, care, visit, hw, pt, work)%>%
+  filter(effect == "fixed", term != "(Intercept)")
+```
+
+```{r}
+unique(all_mods$term)
+```
+
+
+```{r}
+all_mods%<>%
+  mutate(term = factor(term, levels = c("age", "sexF", "healthHealthy", "vaccinatedYes",
+                                        "government_restrictions", "pandemic_week",
+                                        "age:healthHealthy", "age:vaccinatedYes",
+                                        "age:government_restrictions", 
+                                        "pandemic_week:vaccinatedYes",
+                                        "government_restrictions:pandemic_week"
+                                        ),
+                       labels = c("Age", "Sex = Female", "Health Status = Healthy", "Vaccinated", 
+                                  "Stringency Index","Pandemic Week", 
+                                  "Age:Health Status = Healthy", "Age:Vaccinated", 
+                                  "Age:Stringency Index", 
+                                  "Pandemic Week:Vaccinated", 
+                                  "Stringency Index:Pandemic Week" )))
+all_mods %>%
+  filter(variable != "overall")%>%
+  ggplot()+
+  aes(
+    x = estimate,
+    y = term,
+    xmin = conf.low,
+    xmax = conf.high
+  )+
+  geom_pointrange(
+    aes(
+    colour = if_else(p.value < 0.05, "black", "grey30"),
+    shape = if_else(p.value < 0.05, "1", "19")
+  )
+  )+
+  scale_shape_binned()+
+  scale_shape_manual(values = c(19,1))+
+  geom_vline(xintercept = 0,
+             linetype = "dashed")+
+  scale_colour_identity()+
+    scale_y_discrete(limits=rev)+
+  guides(shape = "none")+
+  labs(y = "", x = "Exposure Risk")+
+  facet_wrap(~variable)
+
+ggsave(here::here("figures", "figs2.svg"))
+```
+
+## VI. DHARMa LMM Assumption Testing
+```{r}
+
+#Generate DHARMa (Bums) residuals
+DHARMa_residuals <- simulateResiduals(exposure_lmm_sc, n = 10000, integerResponse = T, 
+                                      plot = FALSE, seed = 1989)
+
+svg(here::here("figures", "supplemental_glmm_residuals.svg"))
+plotResiduals(DHARMa_residuals)
+dev.off()
+
+svg(here::here("figures", "supplemental_glmm_qq.svg"))
+plotQQunif(simulationOutput = exposure_lmm_sc, 
+           testDispersion = FALSE,
+           testUniformity = FALSE,
+           testOutliers = FALSE)
+dev.off()
+```
+
+```{r}
+svg(here::here("figures", "supplemental_glmm_dispersion.svg"))
+testDispersion(DHARMa_residuals)
+dev.off()
+
+svg(here::here("figures", "supplemental_glmm_zi.svg"))
+testZeroInflation(DHARMa_residuals)
+dev.off()
+
+svg(here::here("figures", "supplemental_glmm_outliers.svg"))
+testOutliers(DHARMa_residuals)
+dev.off()
+```
+
+```{r}
+recalc <- recalculateResiduals(DHARMa_residuals, group = exposure_df_sc$pandemic_week, aggregateBy = sum,
+  sel = NULL, seed = 1989, method = "traditional",
+  rotation = NULL)
+
+time_unique <- unique(exposure_df_sc$pandemic_week)
+
+DHARMa::testTemporalAutocorrelation(recalc, time = time_unique)
+```
+
+
+## VII. Assumption Testing - Review of Residuals vs. Individual Predictors
+
+```{r}
+#Government Restrictions
+
+#Plot of DHARMa generated residuals vs. government restrictions
+plotResiduals(DHARMa_residuals, form = exposure_df_sc$government_restrictions)
+
+plotResiduals(DHARMa_residuals, form = exposure_df_sc$age)
+
+plotResiduals(DHARMa_residuals, form = exposure_df_sc$health)
+
+plotResiduals(DHARMa_residuals, form = exposure_df_sc$sex)
+
+plotResiduals(DHARMa_residuals, form = exposure_df_sc$vaccinated)
+
+plotResiduals(DHARMa_residuals, form = exposure_df_sc$pandemic_week)
+```

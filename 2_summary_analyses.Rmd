@@ -1,0 +1,723 @@
+---
+title: "Seroprevalence Summary Analyses"
+author: "Kate Kennedy"
+date: "2023-03-22"
+output: html_document
+---
+
+```{r 1-setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+source("00_setup.R")
+
+load("data.RData")
+```
+
+
+## II. Summaries of Exposure Risk Scores
+
+
+"Central tendencies of exposure risk for each participant"
+```{r}
+#median, interquartile range, mode, mean, standard deviation, standard error
+#geometric mean, geometric standard deviation
+er_user <- monthly_er %>%
+  group_by(user_id) %>%
+  dplyr:::summarise(median_er=median(exposure_risk),
+                    IQR_er=IQR(exposure_risk),
+                    mean_er=mean(exposure_risk),
+                    sd_er=sd(exposure_risk),
+                    se_er=se(exposure_risk),
+                    geomean_er=exp(mean(log(exposure_risk))),
+                    geosd_er=exp(sd(log(exposure_risk))))
+
+```
+
+"Central tendencies of exposure risk for each Month"
+```{r}
+er_month <- monthly_er %>%
+  group_by(month) %>%
+  dplyr:::summarise(median_er=median(exposure_risk),
+                    IQR_er=IQR(exposure_risk),
+                    mean_er=mean(exposure_risk),
+                      sd_er=sd(exposure_risk),
+                    se_er=se(exposure_risk),
+                    geomean_er=exp(mean(log(exposure_risk))),
+                    geosd_er=exp(sd(log(exposure_risk))))
+```
+
+"Central Tendencies of Exposure Risk for each Month by age Group"
+```{r}
+er_month_age <- monthly_er %>%
+  group_by(month, age_group) %>%
+  dplyr:::summarise(median_er=median(exposure_risk),
+                    mean_er=mean(exposure_risk),
+                    sd_er=sd(exposure_risk),
+                    se_er=se(exposure_risk),
+                    geomean_er=exp(mean(log(exposure_risk))),
+                    geosd_er=exp(sd(log(exposure_risk))))
+```
+"Central Tendencies of Exposure Risk for each Month by Health Group"
+```{r}
+er_month_health <- monthly_er %>%
+  group_by(month, health) %>%
+  dplyr:::summarise(median_er=median(exposure_risk),
+                    mean_er=mean(exposure_risk),
+                    sd_er=sd(exposure_risk),
+                    se_er=se(exposure_risk),
+                    geomean_er=exp(mean(log(exposure_risk))),
+                    geosd_er=exp(sd(log(exposure_risk))))
+```
+
+## III. Subsetting data for demographic analysis and visualizations
+"Subset variables of interest"
+```{r}
+demo <- final_baseline %>%
+  dplyr::select(user_id, age, sex, health, age_group, survey)
+
+
+#Merge Exposure and Demographic Data
+er_demo <- er_user %>%
+  left_join(demo)
+```
+###Fig1A and B
+```{r}
+ill_types <- ill_final %>%
+  dplyr::select(user_id, age_group, diagnosis, severity, q0040, q0080, q0360, q0370, q0380, q0390)%>%
+  tidyr::replace_na(list(q0040 = 0, q0080 =0, q0360 = 0, q0370 = 0, q0380 = 0, q0390 = 0))%>%
+  mutate(illness = if_else(is.na(diagnosis), "Other Symptoms", 
+                           if_else(diagnosis == "COVID-19", "COVID-19", 
+                                   if_else(diagnosis %in% c("ILI", "Influenza", "Pneumonia"), "Other ILI", "Other Symptoms"))))%>%
+  mutate(illness = factor(illness, levels = c("COVID-19", "Other ILI", "Other Symptoms")))
+```
+
+```{r}
+participants <- final_baseline %>% 
+  select(user_id, age, age_group)
+
+ill_all <- ill_types %>%
+  group_by(user_id, illness)%>%
+  count()%>%
+  pivot_wider(names_from = illness, values_from = n)%>%
+  full_join(participants)%>%
+  tidyr::replace_na(list(`Other Symptoms` = 0, `COVID-19` = 0, `Other ILI` = 0))%>%
+  mutate(age_group = factor(age_group, levels = c("Younger", "Middle-aged", "Older"), 
+                            labels = c("≤39", "40-59", "≥60")))%>%
+  ungroup()
+
+ill_all$total <- rowSums(ill_all[,c("Other Symptoms","Other ILI","COVID-19")])
+
+#colnames(ill_all)
+
+ill_all %>%
+  group_by(age_group)%>%
+  summarise(min = min(total),
+            mean = mean(total),
+            median = median(total), 
+            max = max(total))
+
+ill_all %>%
+  summary()
+```
+
+
+```{r}
+lm <- lm(total ~ age_group , data = ill_all)
+anova(lm)
+em <- emmeans(lm, pairwise~age_group)
+pairs(em)
+```
+
+```{r}
+ill_types_count = ill_types %>% 
+  group_by(illness) %>% 
+  count() %>% 
+  ungroup()%>% 
+  arrange(desc(illness)) %>%
+  mutate(percentage = round(n/sum(n),3)*100,
+         lab.pos = cumsum(percentage)-.5*percentage)
+
+fig1a <- ill_types_count %>%
+  ggplot(aes(x = 1, y = percentage, fill = illness))+
+  geom_bar(stat = "identity", colour = "black")+
+  coord_polar("y", start = 200) +
+  geom_text(aes(label = paste(percentage,"%", sep = "")), 
+            position = position_stack(vjust = 0.5),
+            col = "black")+
+  theme_void() +
+  theme(legend.title = element_blank(),
+        legend.position = "none")+
+  scale_fill_manual(values = c("pink", "lightyellow", "lightgrey"))+
+  xlim(.2,1.5)
+fig1a
+
+ggsave(here::here("figures", "fig1a.svg"))
+```
+
+```{r}
+infer::chisq_test(ill_types, illness ~ age_group)
+```
+
+
+```{r}
+ill_types_count_2 = ill_types %>% 
+  group_by(illness, age_group) %>% 
+  count() %>% 
+  ungroup()%>% 
+  arrange(desc(illness)) %>%
+  group_by(illness)%>%
+  mutate(percentage = round(n/sum(n),4)*100,
+         lab.pos = cumsum(percentage)-.5*percentage)
+
+fig1b <- ill_types_count_2 %>%
+  ggplot(aes(x = 1, y = percentage, fill = age_group))+
+  geom_bar(stat = "identity", colour = "black")+
+  coord_polar("y", start = 200) +
+  geom_text(aes(label = paste(percentage,"%", sep = "")), 
+            position = position_stack(vjust = 0.5),
+            col = "black")+
+  theme_void() +
+  theme(legend.position = "none",
+        strip.text = element_blank(),
+        panel.spacing=unit(-0.5, "cm"))+
+  scale_fill_manual(values = c("#a2cafa", "#55a0fd", "#067e97"))+
+  xlim(.2,1.5)+
+  facet_grid(~illness)+
+  guides(fill=guide_legend(title="Age group"))
+fig1b
+
+ggsave(here::here("figures", "fig1b.svg"))
+```
+
+
+```{r}
+ill_final %>%
+  group_by(age_group)%>%
+  dplyr::summarise(n = n(),
+            min = fivenum(symp_sum)[1],
+            Q1 = fivenum(symp_sum)[2],
+            median = fivenum(symp_sum)[3],
+            Q3 = fivenum(symp_sum)[4],
+            max = fivenum(symp_sum)[5])
+
+ill_final %>%
+  group_by(age_group)%>%
+  dplyr::summarise(n = n(),
+            min = fivenum(q0270)[1],
+            Q1 = fivenum(q0270)[2],
+            median = fivenum(q0270)[3],
+            Q3 = fivenum(q0270)[4],
+            max = fivenum(q0270)[5])
+
+n_distinct(ill_final$user_id)
+```
+
+
+```{r}
+ill_final %>%
+  group_by(health)%>%
+  dplyr::summarise(n = n(),
+            min = fivenum(symp_sum)[1],
+            Q1 = fivenum(symp_sum)[2],
+            median = fivenum(symp_sum)[3],
+            Q3 = fivenum(symp_sum)[4],
+            max = fivenum(symp_sum)[5])
+
+ill_final %>%
+  group_by(health)%>%
+  dplyr::summarise(n = n(),
+            min = fivenum(q0270)[1],
+            Q1 = fivenum(q0270)[2],
+            median = fivenum(q0270)[3],
+            Q3 = fivenum(q0270)[4],
+            max = fivenum(q0270)[5])
+
+```
+
+###Fig1C
+```{r}
+####NOTE#####
+#need to change significance asterisks in figures to account for the fact that they aren't accounting for the effect of user_id
+lm <- lmer(symp_sum ~ age_group + (1|user_id), data = ill_final)
+anova(lm)
+em <- emmeans(lm, pairwise~age_group)
+pairs(em)
+
+lm <- lmer(symp_sum ~ health + (1|user_id), data = ill_final)
+anova(lm)
+
+```
+
+
+```{r}
+fig1c <- ill_final %>%
+  ggplot()+
+  aes(
+    x = age_group,
+    y = symp_sum
+  )+
+  geom_beeswarm(side = 1L,
+                size = 1,
+                corral = "none",
+                corral.width = 0.6,
+                aes(colour = age_group),
+                stroke = 0,
+                alpha = 0.5)+
+  gghalves::geom_half_violin(
+    side = "l",
+    alpha = 1,
+    aes(fill = age_group),
+    colour = NA,
+    show.legend = FALSE
+    )+
+  stat_summary(fun.data = mean_sdl, 
+               fun.args = list(mult = 1),
+               #position = position_dodge(width=0.5), 
+               geom = "pointrange")+
+  labs(y = "Severity Score", x = "")+
+  theme(legend.position = "none")+
+  scale_colour_manual(values = c("#a2cafa", "#55a0fd", "#067e97"))+
+  scale_fill_manual(values = c("#a2cafa", "#55a0fd", "#067e97"))+
+  stat_compare_means(comparisons = list(c("≤39", "≥60")), 
+  label = "p.signif", method = "t.test", tip.length = 0)+
+  guides(colour=guide_legend(title="Age group"))
+
+fig1c
+  
+ggsave(here::here("figures", "fig1c.svg"))
+```
+
+```{r}
+fig1d <- ill_final %>%
+  ggplot()+
+  aes(
+    y = symp_sum,
+    x = health,
+    colour = health
+  )+
+  geom_beeswarm(side = 1L,
+                size = 1,
+                corral = "none",
+                corral.width = 0.6,
+                aes(colour = health),
+                stroke = 0,
+                alpha = 0.5)+
+  gghalves::geom_half_violin(
+    side = "l",
+    alpha = 0.5,
+    aes(fill = health),
+    colour = NA,
+    show.legend = FALSE
+    )+
+  stat_summary(fun.data = mean_sdl, 
+               fun.args = list(mult = 1),
+               position = position_dodge(width=0.5), 
+               geom = "pointrange", 
+               colour = "black")+
+  theme(
+    legend.position = "none"
+  )+
+  labs(y = "Severity Score", x = "")+
+  scale_colour_manual(values = c("grey70", "grey10"))+
+  scale_fill_manual(values = c("grey70", "grey10"))+
+  stat_compare_means(comparisons = list(c("Healthy", "Pre-existing Conditions")), 
+  label = "p.signif", method = "t.test", tip.length = 0)
+fig1d
+
+ggsave(here::here("figures", "fig1d.svg"))
+```
+
+###Fig1D
+
+```{r}
+lm <- lmer(q0270 ~ age_group + (1|user_id), data = ill_final)
+anova(lm)
+em <- emmeans(lm, pairwise~age_group)
+pairs(em)
+
+lm <- lmer(q0270 ~ health + (1|user_id), data = ill_final)
+anova(lm)
+```
+
+```{r}
+fig1e <- ill_final %>%
+  #filter(q0270 > 0)%>%
+  ggplot()+
+  aes(
+    x = age_group,
+    y = q0270
+  )+
+  geom_beeswarm(side = 1L,
+                size = 1,
+                corral = "wrap",
+                #cex = 1,
+                corral.width = 0.6,
+                aes(colour = age_group),
+                stroke = 0,
+                alpha = 0.5)+
+  gghalves::geom_half_violin(
+    side = "l",
+    alpha = 1,
+    aes(fill = age_group),
+    colour = NA,
+    show.legend = FALSE
+    )+
+  stat_summary(fun.data = mean_sdl, 
+               fun.args = list(mult = 1),
+               #position = position_dodge(width=0.5), 
+               geom = "pointrange")+
+  theme(legend.position = "none")+
+  labs(y = "Days of Missed Activities", x = "")+
+  scale_colour_manual(values = c("#a2cafa", "#55a0fd", "#067e97"))+
+  scale_fill_manual(values = c("#a2cafa", "#55a0fd", "#067e97"))+
+  stat_compare_means(comparisons = list(c("≤39", "≥60")), 
+  label = "p.signif", method = "t.test", tip.length = 0)+
+  #scale_y_continuous(trans = pseudo_log_trans())+
+  scale_y_sqrt()+
+  guides(colour=guide_legend(title="Age group"))
+fig1e
+  
+ggsave(here::here("figures", "fig1e.svg"))
+```
+
+```{r}
+fig1f <- ill_final %>%
+  #filter(q0270 > 0)%>%
+  ggplot(aes(
+    x = health,
+    y = q0270
+  ))+
+  geom_beeswarm(side = 1L,
+                size = 1,
+                corral = "wrap",
+                corral.width = 0.6,
+                aes(colour = health),
+                stroke = 0,
+                alpha = 0.5)+
+  gghalves::geom_half_violin(
+    side = "l",
+    alpha = 0.5,
+    aes(fill = health),
+    colour = NA,
+    show.legend = FALSE
+    )+
+  stat_summary(fun.data = mean_sdl,
+               fun.args = list(mult = 1),
+               geom = "pointrange")+
+  labs(y = "Days of Missed Activities", x = "")+
+  theme(legend.position = "none")+
+  scale_colour_manual(values = c("grey70", "grey20"))+
+  scale_fill_manual(values = c("grey70", "grey20"))+
+  scale_y_sqrt()+
+  stat_compare_means(comparisons = list(c("Healthy", "Pre-existing Conditions")), 
+  label = "p.signif", method = "t.test", tip.length = 0)
+fig1f
+
+ggsave(here::here("figures", "fig1f.svg"))
+```
+
+```{r}
+fig1ab <- cowplot::plot_grid(fig1a, fig1b, 
+                   labels = c("a", "b"),
+                   rel_widths = c(1,2),
+                   nrow = 1)
+
+fig1cf <- cowplot::plot_grid(fig1c, fig1d, fig1e, fig1f, 
+                   labels = c("c", "d", "e", "f"),
+                   nrow = 2)
+
+cowplot::plot_grid(fig1ab, fig1cf, nrow = 2, rel_heights = c(1,2))
+
+ggsave(here::here("figures", "fig1.svg"), width = 8, height = 7 , units = "in")
+```
+
+
+
+```{r}
+ill_counts <- ill_final %>%
+  count(user_id)%>%
+  arrange()
+```
+
+
+## V. Pre/post ER
+```{r}
+lm <- lmer(exposure_risk ~ pre_post*age_group + (1|user_id), data = pre_post_long)
+anova(lm)
+em <- emmeans(lm, pairwise~ pre_post | age_group)
+pairs(em)
+
+em <- emmeans(lm, pairwise~ age_group | pre_post)
+pairs(em)
+```
+
+```{r}
+lm <- lmer(exposure_risk ~ pre_post*health + (1|user_id), data = pre_post_long)
+anova(lm)
+em <- emmeans(lm, pairwise~ pre_post | health)
+pairs(em)
+
+em <- emmeans(lm, pairwise~ health | pre_post)
+pairs(em)
+
+```
+
+
+```{r}
+fig2a <- pre_post_long %>%
+  ggplot()+
+  aes(
+    y = exposure_risk,
+    x = pre_post
+  )+
+  geom_beeswarm(side = 1L,
+                size = 1,
+                cex=2.5,
+                corral = "wrap",
+                corral.width = 0.5,
+                aes(colour = age_group),
+                stroke = 0, 
+                alpha = 0.5)+
+  gghalves::geom_half_violin(
+    side = "l",
+    alpha = 1,
+    aes(fill = age_group),
+    colour = NA,
+    show.legend = FALSE
+    )+
+  # geom_beeswarm(alpha = 1, 
+  #               aes(colour = age_group), 
+  #               shape = 1)+
+  stat_summary(fun.data = mean_sdl, 
+               fun.args = list(mult = 1),
+               position = position_dodge(width=0.5), 
+               geom = "pointrange")+
+  facet_grid(~age_group, switch = "both")+
+  theme(
+    legend.position = "none",
+    strip.background = element_blank(),
+    panel.border = element_blank(),
+    axis.line = element_line(colour = "black", linewidth = 1)
+  )+
+  labs(y = "Exposure Risk", x = "")+
+  scale_colour_manual(values = c("#a2cafa", "#55a0fd", "#067e97"))+
+  scale_fill_manual(values = c("#a2cafa", "#55a0fd", "#067e97"))+
+  stat_compare_means(comparisons = list(c("pre", "post")), 
+  label = "p.signif", method = "t.test", paired=T, tip.length = 0)
+fig2a
+
+#ggsave(here::here("figures", "fig2a.svg"))
+```
+
+```{r}
+lm <- lm(change_er ~ age_group, data = pre_post_er)
+anova(lm)
+em <- emmeans(lm, pairwise~ age_group)
+pairs(em)
+
+lm <- lm(change_er ~ health, data = pre_post_er)
+anova(lm)
+
+```
+
+```{r}
+my_comparisons = list(c("Younger", "Middle-aged"), 
+                      c("Middle-aged", "Older"),
+                      c("Younger", "Older"))
+
+fig2b <- pre_post_er %>%
+  ggplot()+
+  aes(
+    y = abs(change_er),
+    x = age_group
+  )+
+  geom_beeswarm(side = 1L,
+                size = 1,
+                cex=1.2,
+                corral = "wrap",
+                corral.width = 0.5,
+                aes(colour = age_group),
+                stroke = 0,
+                alpha = 0.5)+
+  gghalves::geom_half_violin(
+    side = "l",
+    alpha = 1,
+    aes(fill = age_group),
+    colour = NA,
+    show.legend = FALSE
+    )+
+  stat_summary(fun.data = mean_sdl, 
+               fun.args = list(mult = 1),
+               position = position_dodge(width=0.5), 
+               geom = "pointrange")+
+  theme(
+    legend.position = "none",
+    strip.background = element_blank(),
+    panel.border = element_blank(),
+    axis.line = element_line(colour = "black", linewidth = 1)
+  )+
+  labs(y = "Decrease in Exposure Risk", x = "Age Group")+
+  scale_colour_manual(values = c("#a2cafa", "#55a0fd", "#067e97"))+
+  scale_fill_manual(values = c("#a2cafa", "#55a0fd", "#067e97"))+
+  stat_compare_means(aes(label = after_stat(p.signif)), 
+                     method = "t.test", 
+                     ref.group = "≤39")
+fig2b
+
+#ggsave(here::here("figures", "fig2a_diff.svg"))
+```
+
+```{r}
+fig2c <- pre_post_long %>%
+  ggplot()+
+  aes(
+    y = exposure_risk,
+    x = pre_post
+  )+
+  geom_beeswarm(side = 1L,
+                size = 1,
+                cex=2,
+                corral = "wrap",
+                corral.width = 0.6,
+                aes(colour = health),
+                stroke = 0,
+                alpha = 0.5)+
+  gghalves::geom_half_violin(
+    side = "l",
+    alpha = 0.5,
+    aes(fill = health),
+    colour = NA,
+    show.legend = FALSE
+    )+
+  stat_summary(fun.data = mean_sdl, 
+               fun.args = list(mult = 1),
+               position = position_dodge(width=0.5), 
+               geom = "pointrange")+
+  facet_grid(~health, switch = "both")+
+  theme(
+    legend.position = "none",
+    strip.background = element_blank(),
+    panel.border = element_blank(),
+    axis.line = element_line(colour = "black", linewidth = 1)
+  )+
+  labs(y = "Exposure Risk", x = "")+
+  scale_colour_manual(values = c("grey70", "grey20"))+
+  scale_fill_manual(values = c("grey70", "grey20"))+
+  stat_compare_means(comparisons = list(c("pre", "post")), 
+  label = "p.signif", method = "t.test", paired=T, tip.length = 0)
+fig2c
+
+#ggsave(here::here("figures", "fig2b.svg"))
+```
+
+```{r}
+fig2d <- pre_post_er %>%
+  ggplot()+
+  aes(
+    y = abs(change_er),
+    x = health
+  )+
+  geom_beeswarm(side = 1L,
+                size = 1,
+                cex=1,
+                corral = "wrap",
+                corral.width = 0.6,
+                aes(colour = health),
+                stroke = 0,
+                alpha = 0.5)+
+  gghalves::geom_half_violin(
+    side = "l",
+    alpha = 0.5,
+    aes(fill = health),
+    colour = NA,
+    show.legend = FALSE
+    )+
+  stat_summary(fun.data = mean_sdl, 
+               fun.args = list(mult = 1),
+               position = position_dodge(width=0.5), 
+               geom = "pointrange")+
+  theme(
+    legend.position = "none",
+    strip.background = element_blank(),
+    panel.border = element_blank(),
+    axis.line = element_line(colour = "black", linewidth = 1)
+  )+
+  scale_colour_manual(values = c("grey70", "grey20"))+
+  scale_fill_manual(values = c("grey70", "grey20"))+
+  labs(y = "Decrease in Exposure Risk", x = "")+
+  stat_compare_means(comparisons = list(c("Healthy", "Pre-existing Conditions")), 
+  label = "p.signif", method = "t.test", tip.length = 0)
+fig2d
+
+#ggsave(here::here("figures", "fig2b_diff.svg"))
+```
+
+```{r}
+cowplot::plot_grid(fig2a, fig2b, fig2c, fig2d,
+                   labels = c("a", "b", "c", "d"),
+                   nrow = 2)
+
+ggsave(here::here("figures", "fig2.svg"), height = 5, width = 7, units = "in")
+```
+
+## VI. Data Visualizations with Exposure Risk and Stringency Index
+
+```{r}
+"Overlaid Mean SI and Mean ER by Month"
+
+#Extract mean and standard error values for stringency and exposure
+er_si_month <- merge(ox_si_month, er_month, by = "month")
+er_si_month <- er_si_month %>% dplyr::select(month, mean_si, se_si,
+                                             mean_er, se_er)
+
+#Long form table for plotting
+#multiply exposure risk to bring on to same scale as stringency
+er_si_table <-  melt(setDT(er_si_month), measure = patterns("mean","se"),
+     variable.name = 'Measurement', value.name = c('mean', 'se')) %>% 
+  mutate(Measurement = ifelse(Measurement==1, 'Stringency Index', 'Exposure Risk')) %>%
+  mutate(mean = ifelse(Measurement == 'Exposure Risk', mean*20, mean))%>%
+  mutate(se = ifelse(Measurement == 'Exposure Risk', se*20, se))%>%
+  mutate(date = as.Date(lubridate::parse_date_time(month, orders = c("m Y"))))
+
+#Specify Factors for Legend
+er_si_table$Measurement <- factor(er_si_table$Measurement, 
+                                  levels = c("Stringency Index", "Exposure Risk"))
+```
+
+
+```{r}
+#Plot with secondary axis for exposure risk
+
+ggplot(er_si_table, aes(date, mean, colour = Measurement)) +
+  geom_point(size=2) +
+  geom_pointrange(aes(ymin=mean-se, ymax=mean+se)) +
+  scale_colour_manual(values = c("#000063","#CE0000")) +
+  scale_y_continuous("Stringency Index",
+                     breaks = c(60, 70, 80, 90, 100),
+                     sec.axis = sec_axis(~ . / 20, name =
+                                           "Exposure Risk")) +
+  scale_x_date(date_labels="%b", date_breaks="month") +
+  facet_grid(~ year(date), scales="free_x", switch="x") +
+  theme(strip.placement = "outside",
+        strip.background = element_blank(),
+        panel.spacing=unit(0.4,"cm"))+
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(), 
+        strip.text = element_text(size = 14),
+        panel.border = element_blank(),
+        axis.line = element_line(colour = "black", linewidth = 1), 
+        legend.text = element_text(size = 14), 
+        legend.title = element_text(size = 16),
+        legend.position = "bottom",
+        legend.key = element_blank(),
+        axis.title.x = element_blank(),
+        axis.title = element_text(size = 16, face = 2, colour = "black"), 
+        axis.text.x = element_text(size = 12, colour = "black"),
+        axis.text.y = element_text(size = 14, colour = "black"),
+        plot.title = element_text(color="black", size=18, face="bold", hjust = 0.5, vjust = 2)) + 
+  labs(colour = "")
+
+
+ggsave(here::here("figures", "fig2c.svg"), height = 4.5, width= 8, units = "in")
+```

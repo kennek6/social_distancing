@@ -1,0 +1,313 @@
+---
+title: "Untitled"
+author: "Kate"
+date: "2024-03-21"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r 1-setup, include = FALSE}
+source("00_setup.R")
+```
+
+```{r setup, include=FALSE}
+load("data.RData")
+```
+
+###Table 1
+
+## Participant Characteristics
+```{r}
+final_baseline %<>%
+  mutate(Tobacco = replace(Tobacco, Tobacco %in% c("No", "3"), "Never"),
+         SmokeCannabis = replace(SmokeCannabis, SmokeCannabis == "No", "Never"),
+         NumberHousehold = replace(NumberHousehold, NumberHousehold == 0, 1),#impossible to have 0 people in your household
+         Education = if_else(Education %in% c("Some High School", "Elementary School"), 
+                             "Less than highschool", 
+                             if_else(Education %in% c("High School", "Some trade or university"), 
+                                     "High School Diploma",
+                                     if_else(Education == "Diploma or Certificate",
+                                             "College Diploma or Certificate", 
+                                             if_else(Education == "Bachelors Degree",
+                                                     "Bachelors Degree",
+                                                     "Post-graduate Degree"))))
+         ) 
+
+unique(final_baseline$Education)
+```
+
+
+```{r}
+t.meta <- as_tibble(final_baseline)%>%
+  mutate(participant = TRUE,
+         employ = if_else(is.na(q1150), "Employed", 
+                          if_else(q1150 == 1, "Retired", "Unemployed")),
+         sick_leave = if_else(q1290 == 2, "Unsure", 
+                              if_else(q1290 == 1, "Yes", "No")),
+         pubtrans = if_else(q0630 == 1, "Yes", "No"),
+         age_group = factor(age_group, levels = c("Younger", "Middle-aged", "Older"),
+                            labels = c("≤39", "40-59", "≥60")),
+         sick_leave = factor(sick_leave, levels = c("Yes", "No", "Unsure")),
+         NumberHousehold = as.numeric(NumberHousehold),
+         Tobacco = factor(Tobacco, levels = c("Never", "Former", "Occasionally", "Daily")),
+         SmokeCannabis = factor(SmokeCannabis, levels = c("Never", "Occasionally", "Daily")),
+         health = factor(health, labels = c("Healthy", "PEC")),
+         Education = factor(Education, levels = c("Less than highschool", "High School Diploma",
+                                                  "College Diploma or Certificate", 
+                                                  "Bachelors Degree",
+                                                     "Post-graduate Degree")))%>%
+  labelled::set_variable_labels(
+    participant = "n",
+    sex = "Sex (% Female)",
+    Ethnicity = "Ethnicity (% White)",
+    age = "Age",
+    employ = "Employment status",
+    sick_leave = "Paid sick leave",
+    pubtrans = "Public transit regular",
+    LivingSituation = "Home type",
+    NumberHousehold = "Household size",
+    ChildrenHousehold = "Childen in household",
+    Tobacco = "Tobacco smoking status",
+    SmokeCannabis = "Cannabis smoking status",
+    OtherLung = "Other lung disorder",
+    HighBloodPressure = "High blood pressure",
+    HighCholesterol = "High cholesterol",
+    HeartDisease = "Heart disease",
+    CancerHistory = "History of cancer",
+    AutoimmuneDisorder = "Autoimmune Disorder",
+    OrganFailure = "Organ Failure",
+    BoneJoint = "Bone and joint disorder",
+    Gastrointestinal = "Gastrointestinal disorder",
+    Thyroid = "Thyroid disorder"
+    )
+
+```
+
+```{r}
+listVars <- c("sex", "age", "Ethnicity", "Education", "employ", "sick_leave", "pubtrans",
+              "LivingSituation", 
+              "NumberHousehold",
+              "ChildrenHousehold", "Tobacco", "SmokeCannabis")
+
+comorbs <- final_baseline%>%
+  select("Asthma", "COPD", "EGPA", "ILD/IPF", "OtherLung",
+         "AutoimmuneDisorder", "BoneJoint", "Dermatosis",
+         "Diabetes", "Gastrointestinal", "HeartDisease", "HighBloodPressure", "HighCholesterol",
+         "CancerHistory", "Mood Disorder", "Neurological", "OrganFailure", "Thyroid", "Other" 
+         )%>%
+  colnames()
+```
+
+```{r normality tests}
+#test variables for normal distribution
+numVars <- listVars[which(listVars %in% c("age", "NumberHousehold"))]
+
+t.meta %>%
+  shapiro_test(numVars)
+```
+
+```{r}
+statistics <- c(
+  participant ~ "{n}",
+  age ~ c("{median}", "({p25}, {p75})"),
+  NumberHousehold ~"{median} ({p25}, {p75})",
+  sex ~"{p}%",
+  Education ~"{p}%",
+  Ethnicity ~"{p}%",
+  employ ~"{p}%",
+  sick_leave ~"{p}%",
+  pubtrans ~"{p}%",
+  LivingSituation ~"{p}%",
+  ChildrenHousehold ~"{p}%",
+  Tobacco ~"{p}%",
+  SmokeCannabis ~"{p}%"
+  
+)
+
+types <- c(
+  sex ~ "dichotomous",
+  pubtrans ~ "dichotomous",
+  NumberHousehold ~ "continuous2",
+  age ~ "continuous2",
+  Ethnicity ~ "dichotomous",
+  Education ~ "categorical"
+)
+```
+
+
+```{r}
+t1o <- t.meta %>%
+  select(participant, all_of(listVars))%>%
+  tbl_summary(
+    missing = "no",
+    type = types,
+    statistic = statistics,
+    digits = list(NumberHousehold = 0),
+    value = list(pubtrans = "Yes", sex = "F", Ethnicity = "White")
+  )%>%
+  italicize_levels()%>%
+  modify_header(stat_0 = "")%>%
+  modify_footnote(update = everything() ~ NA)
+t1o
+
+t1a <- t.meta %>%
+  select(participant, age_group, all_of(listVars))%>%
+  tbl_summary(
+    by = age_group,
+    missing = "no",
+    type = types,
+    statistic = statistics,
+    digits = list(NumberHousehold = 0),
+    value = list(pubtrans = "Yes", sex = "F", Ethnicity = "White")
+  )%>%
+  #add_overall(col_label = "**Overall**")%>%
+  italicize_levels()%>%
+  add_p(list(age ~ "kruskal.test",
+        NumberHousehold ~ "kruskal.test",
+        Education ~ "chisq.test"))%>%
+  add_q()%>%
+  bold_p(t=0.05, q = TRUE)%>%
+  modify_header(p.value = "**p**", q.value = "**q**",
+                all_stat_cols(FALSE) ~ "**{level}**")%>%
+  modify_spanning_header(c("stat_1", "stat_2", "stat_3") ~ "**Age group**")%>%
+  modify_footnote(update = everything() ~ NA)
+t1a
+
+t1b <- t.meta %>%
+  select(participant, health, all_of(listVars))%>%
+  tbl_summary(
+    by = health,
+    missing = "no",
+    type = types,
+    statistic = statistics,
+    digits = list(NumberHousehold = 0),
+    value = list(pubtrans = "Yes", sex = "F", Ethnicity = "White")
+  )%>%
+  italicize_levels()%>%
+  add_p(list(age ~ "kruskal.test",
+        NumberHousehold ~ "kruskal.test",
+        Education ~ "chisq.test"))%>%
+  add_q()%>%
+  bold_p(t=0.05, q = TRUE)%>%
+  modify_header(p.value = "**p**", q.value = "**q**",
+                all_stat_cols(FALSE) ~ "**{level}**")%>%
+  modify_spanning_header(c("stat_1", "stat_2") ~ "**Health group**")%>%
+  modify_footnote(update = everything() ~ NA)
+t1b
+
+t1 <- tbl_merge(
+  tbls = list(t1o, t1a, t1b),
+  tab_spanner = c("Overall", "Age group", "Health group")
+)%>%
+  as_gt()%>%
+  gt::tab_style(
+    style = gt::cell_text(weight = "bold"),
+    locations = gt::cells_row_groups(groups = everything())
+  )%>%
+  gt::opt_vertical_padding(scale = 0.15)%>%
+  gt::tab_footnote(
+    footnote = "False discovery rate significance corrected for multiple testing",
+    locations = gt::cells_column_labels(columns = contains("q"))
+  )
+  
+  gt::tab_source_note(
+    source_note = "PEC = Pre-existing condition"
+  )
+t1
+
+#gt::gtsave(t1, here::here("table1.pdf"))
+```
+
+
+```{r}
+t2o <- t.meta %>%
+  select(participant, all_of(comorbs))%>%
+  tbl_summary(
+    missing = "no",
+    statistic = list(participant ~ "{n}", all_of(comorbs) ~"{p}")
+  )%>%
+  italicize_levels()%>%
+  modify_header(stat_0 = "")%>%
+  modify_footnote(update = everything() ~ NA)
+t2o
+
+t2a <- t.meta %>%
+  select(participant, age_group, all_of(comorbs))%>%
+  tbl_summary(
+    by = age_group,
+    missing = "no",
+    statistic = list(participant ~ "{n}", all_of(comorbs) ~"{p}")
+  )%>%
+  #add_overall(col_label = "**Overall**")%>%
+  italicize_levels()%>%
+  add_p(list(all_of(comorbs) ~ "fisher.test"))%>%
+  add_q()%>%
+  bold_p(t=0.05, q = TRUE)%>%
+  modify_header(label = "**Comorbidity**", p.value = "**p**", q.value = "**q**",
+                all_stat_cols(FALSE) ~ "**{level}**")%>%
+  modify_spanning_header(c("stat_1", "stat_2", "stat_3") ~ "**Age group**")%>%
+  modify_footnote(update = everything() ~ NA)
+t2a
+
+t2b <- t.meta %>%
+  select(participant, health, all_of(comorbs))%>%
+  tbl_summary(
+    by = health,
+    missing = "no",
+    statistic = list(participant ~ "{n}", all_of(comorbs) ~"{p}")
+  )%>%
+  italicize_levels()%>%
+  add_p(list(all_of(comorbs) ~ "fisher.test"))%>%
+  add_q()%>%
+  bold_p(t=0.05, q = TRUE)%>%
+  modify_header(label = "**Comorbidity**", p.value = "**p**", q.value = "**q**",
+                all_stat_cols(FALSE) ~ "**{level}**")%>%
+  modify_spanning_header(c("stat_1", "stat_2") ~ "**Health group**")%>%
+  modify_footnote(update = everything() ~ NA)
+t2b
+
+t2 <- tbl_merge(
+  tbls = list(t2o, t2a, t2b),
+  tab_spanner = c("Overall", "Age group", "Health group")
+)%>%
+  modify_header(label = "**Comorbidity (%)**")%>%
+  as_gt()%>%
+  gt::tab_style(
+    style = gt::cell_text(weight = "bold"),
+    locations = gt::cells_row_groups(groups = everything())
+  )%>%
+  gt::opt_vertical_padding(scale = 0.15)%>%
+  gt::tab_footnote(
+    footnote = "False discovery rate significance corrected for multiple testing",
+    locations = gt::cells_column_labels(columns = contains("q"))
+  )%>%
+  gt::tab_source_note(
+    source_note = "PEC = Pre-existing condition; 
+    COPD = Chronic obstructive pulmonary disease; 
+    EGPA = Eosinophilic granulomatosis with polyangiitis;
+    ILD/IPF = Interstitial lung disease/idiopathic pulmonary fibrosis"
+  )
+t2
+
+#gt::gtsave(t2, here::here("table2.pdf"))
+```
+
+
+```{r}
+t <- tbl_stack(list(t1, t2), group_header = c("Characteristics", "Comorbidities"))%>%
+  modify_header(label = "")%>%
+  as_gt()%>%
+  gt::tab_style(
+    style = gt::cell_text(weight = "bold"),
+    locations = gt::cells_row_groups(groups = everything())
+  )%>%
+  gt::opt_vertical_padding(scale = 0.25)
+t
+
+#gt::gtsave(t, here::here("table_combined.pdf"))
+
+```
+
